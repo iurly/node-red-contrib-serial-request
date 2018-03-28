@@ -295,6 +295,7 @@ module.exports = function(RED) {
                             buf.copy(n,0,0,i);
                             if (node.serialConfig.bin !== "bin") { n = n.toString(); }
                             node.send({"payload":n, port:node.serialConfig.serialport});
+                            node.port.unlock();
                             n = null;
                             i = 0;
                         }
@@ -341,7 +342,31 @@ module.exports = function(RED) {
                             last_sender: null,
                             on: function(a,b) { this._emitter.on(a,b); },
                             close: function(cb) { this.serial.close(cb); },
-                            write: function(m,sender,cb) { this.last_sender = sender; this.serial.write(m,cb); },
+                            write: function(msg,sender,cb) {
+                              if (this.last_sender === null)
+                              {
+                                  this.last_sender = sender;
+                                  this.serial.write(msg,cb);
+                              } else {
+                                  this.queue.push(
+                                  {sender: sender,
+                                   msg: msg,
+                                   cb: cb
+                                   });
+                              }
+                            },
+                            unlock: function() {
+                              if (this.queue.length) {
+                                var item = this.queue[0];
+                                this.last_sender = item.sender;
+                                this.serial.write(item.msg,item.cb);
+                                this.queue.shift();
+                              }
+                              else
+                              {
+                                this.last_sender = null;
+                              }
+                            },
                         }
                         //newline = newline.replace("\\n","\n").replace("\\r","\r");
                         var olderr = "";
