@@ -54,7 +54,7 @@ module.exports = function(RED) {
                     else if ((node.addCh !== "") && (node.out === "char")) {
                         payload = Buffer.concat([payload,new Buffer(node.addCh)]);
                     }
-                    node.port.write(payload,null,function(err,res) {
+                    node.port.write(msg,payload,null,function(err,res) {
                         if (err) {
                             var errmsg = err.toString().replace("Serialport","Serialport "+node.port.serial.path);
                             node.error(errmsg,msg);
@@ -229,7 +229,7 @@ module.exports = function(RED) {
                     else if ((node.addCh !== "") && (node.out === "char")) {
                         payload = Buffer.concat([payload,new Buffer(node.addCh)]);
                     }
-                    node.port.write(payload,node,function(err,res) {
+                    node.port.write(msg,payload,node,function(err,res) {
                         if (err) {
                             var errmsg = err.toString().replace("Serialport","Serialport "+node.port.serial.path);
                             node.error(errmsg,msg);
@@ -294,8 +294,19 @@ module.exports = function(RED) {
                             var n = new Buffer(i);
                             buf.copy(n,0,0,i);
                             if (node.serialConfig.bin !== "bin") { n = n.toString(); }
-                            node.send({"payload":n, port:node.serialConfig.serialport});
-                            node.port.unlock();
+                            var msgin = node.port.unlock();
+                            var msgout = Object.assign(
+                              { 
+                              }, msgin);
+                              
+                            msgout= Object.assign(msgout,
+                            {
+                              payload: n,
+                              port:node.serialConfig.serialport,
+                              request_payload: msgin.payload,
+                              request_msgid: msgin._msgid,
+                            });
+                            node.send(msgout);
                             n = null;
                             i = 0;
                         }
@@ -341,27 +352,28 @@ module.exports = function(RED) {
                             queue: [],
                             on: function(a,b) { this._emitter.on(a,b); },
                             close: function(cb) { this.serial.close(cb); },
-                            write: function(msg,sender,cb) {
+                            write: function(msg,payload,sender,cb) {
                               this.queue.push(
                                 {sender: sender,
                                  msg: msg,
+                                 payload: payload,
                                  cb: cb
                                  });
                               if (this.queue.length == 1)
                               {
-                                  this.serial.write(msg,cb);
+                                  this.serial.write(payload,cb);
                               }
                             },
                             unlock: function() {
-                              var msg = null;
+                              var msg1 = null;
                               if (this.queue.length)
-                                msg = this.queue[0].msg;
+                                msg1 = this.queue[0].msg;
                               this.queue.shift();
                               if (this.queue.length) {
                                 var item = this.queue[0];
-                                this.serial.write(item.msg,item.cb);
+                                this.serial.write(item.payload,item.cb);
                               }
-                              return msg;
+                              return msg1;
                             },
                         }
                         //newline = newline.replace("\\n","\n").replace("\\r","\r");
