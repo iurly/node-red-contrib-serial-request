@@ -339,33 +339,29 @@ module.exports = function(RED) {
                             _closing: false,
                             tout: null,
                             queue: [],
-                            last_sender: null,
                             on: function(a,b) { this._emitter.on(a,b); },
                             close: function(cb) { this.serial.close(cb); },
                             write: function(msg,sender,cb) {
-                              if (this.last_sender === null)
+                              this.queue.push(
+                                {sender: sender,
+                                 msg: msg,
+                                 cb: cb
+                                 });
+                              if (this.queue.length == 1)
                               {
-                                  this.last_sender = sender;
                                   this.serial.write(msg,cb);
-                              } else {
-                                  this.queue.push(
-                                  {sender: sender,
-                                   msg: msg,
-                                   cb: cb
-                                   });
                               }
                             },
                             unlock: function() {
+                              var msg = null;
+                              if (this.queue.length)
+                                msg = this.queue[0].msg;
+                              this.queue.shift();
                               if (this.queue.length) {
                                 var item = this.queue[0];
-                                this.last_sender = item.sender;
                                 this.serial.write(item.msg,item.cb);
-                                this.queue.shift();
                               }
-                              else
-                              {
-                                this.last_sender = null;
-                              }
+                              return msg;
                             },
                         }
                         //newline = newline.replace("\\n","\n").replace("\\r","\r");
@@ -414,7 +410,10 @@ module.exports = function(RED) {
                             });
                             obj.serial.on('data',function(d) {
                                 for (var z=0; z<d.length; z++) {
-                                    obj._emitter.emit('data',d[z],obj.last_sender);
+                                    var last_sender = null;
+                                    if (obj.queue.length)
+                                      last_sender = obj.queue[0].sender;
+                                    obj._emitter.emit('data',d[z],last_sender);
                                 }
                             });
                             // obj.serial.on("disconnect",function() {
