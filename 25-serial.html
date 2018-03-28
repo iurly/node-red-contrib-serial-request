@@ -82,6 +82,45 @@
     });
 </script>
 
+<script type="text/x-red" data-template-name="serial request">
+    <div class="form-row node-input-serial">
+        <label for="node-input-serial"><i class="fa fa-random"></i> <span data-i18n="serial.label.serialport"></span></label>
+        <input type="text" id="node-input-serial">
+    </div>
+    <div class="form-row">
+        <label for="node-inputoutput-name"><i class="fa fa-tag"></i> <span data-i18n="node-red:common.label.name"></span></label>
+        <input type="text" id="node-input-name" data-i18n="[placeholder]node-red:common.label.name">
+    </div>
+</script>
+
+<script type="text/x-red" data-help-name="serial request">
+    <p>Provides a connection to a request/response serial port.</p>
+    <p>Only the <code>msg.payload</code> is sent.</p>
+    <p>Optionally the new line character used to split the input can be appended to every message sent out to the serial port.</p>
+    <p>Binary payloads can be sent by using a Buffer object.</p>
+</script>
+
+<script type="text/javascript">
+    RED.nodes.registerType('serial request',{
+        category: 'function',
+        defaults: {
+            name: {name:""},
+            serial: {type:"serial-port",required:true}
+        },
+        color:"BurlyWood",
+        inputs:1,
+        outputs:1,
+        icon: "serial.png",
+        align: "left",
+        label: function() {
+            var serialNode = RED.nodes.node(this.serial);
+            return this.name||(serialNode?serialNode.label().split(":")[0]:this._("serial.label.serial"));
+        },
+        labelStyle: function() {
+            return this.name?"node_label_italic":"";
+        }
+    });
+</script>
 
 <script type="text/x-red" data-template-name="serial-port">
     <div class="form-row">

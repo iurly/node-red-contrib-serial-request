@@ -54,7 +54,7 @@ module.exports = function(RED) {
                     else if ((node.addCh !== "") && (node.out === "char")) {
                         payload = Buffer.concat([payload,new Buffer(node.addCh)]);
                     }
-                    node.port.write(payload,function(err,res) {
+                    node.port.write(payload,null,function(err,res) {
                         if (err) {
                             var errmsg = err.toString().replace("Serialport","Serialport "+node.port.serial.path);
                             node.error(errmsg,msg);
@@ -114,7 +114,7 @@ module.exports = function(RED) {
                 splitc = new Buffer(node.serialConfig.newline.replace("\\n","\n").replace("\\r","\r").replace("\\t","\t").replace("\\e","\e").replace("\\f","\f").replace("\\0","\0")); // jshint ignore:line
             }
 
-            this.port.on('data', function(msg) {
+            this.port.on('data', function(msg, sender) {
                 // single char buffer
                 if ((node.serialConfig.newline === 0)||(node.serialConfig.newline === "")) {
                     if (node.serialConfig.bin !== "bin") { node.send({"payload": String.fromCharCode(msg), port:node.serialConfig.serialport}); }
@@ -191,6 +191,140 @@ module.exports = function(RED) {
     RED.nodes.registerType("serial in",SerialInNode);
 
 
+    /******* REQUEST *********/
+    function SerialRequestNode(n) {
+        RED.nodes.createNode(this,n);
+        this.serial = n.serial;
+        this.serialConfig = RED.nodes.getNode(this.serial);
+
+        if (this.serialConfig) {
+            var node = this;
+            node.tout = null;
+            var buf;
+            node.port = serialPool.get(this.serialConfig.serialport,
+                this.serialConfig.serialbaud,
+                this.serialConfig.databits,
+                this.serialConfig.parity,
+                this.serialConfig.stopbits,
+                this.serialConfig.newline);
+            node.addCh = "";
+            if (node.serialConfig.addchar == "true" || node.serialConfig.addchar === true) {
+                node.addCh = this.serialConfig.newline.replace("\\n","\n").replace("\\r","\r").replace("\\t","\t").replace("\\e","\e").replace("\\f","\f").replace("\\0","\0"); // jshint ignore:line
+            }
+            if (node.serialConfig.out != "count") { buf = new Buffer(bufMaxSize); }
+            else { buf = new Buffer(Number(node.serialConfig.newline)); }
+            var i = 0;
+            node.on("input",function(msg) {
+                if (msg.hasOwnProperty("payload")) {
+                    var payload = msg.payload;
+                    if (!Buffer.isBuffer(payload)) {
+                        if (typeof payload === "object") {
+                            payload = JSON.stringify(payload);
+                        }
+                        else {
+                            payload = payload.toString();
+                        }
+                        if (node.out === "char") { payload += node.addCh; }
+                    }
+                    else if ((node.addCh !== "") && (node.out === "char")) {
+                        payload = Buffer.concat([payload,new Buffer(node.addCh)]);
+                    }
+                    node.port.write(payload,node,function(err,res) {
+                        if (err) {
+                            var errmsg = err.toString().replace("Serialport","Serialport "+node.port.serial.path);
+                            node.error(errmsg,msg);
+                        }
+                    });
+                }
+            });
+            var splitc;
+            if (node.serialConfig.newline.substr(0,2) == "0x") {
+                splitc = new Buffer([parseInt(node.serialConfig.newline)]);
+            }
+            else {
+                splitc = new Buffer(node.serialConfig.newline.replace("\\n","\n").replace("\\r","\r").replace("\\t","\t").replace("\\e","\e").replace("\\f","\f").replace("\\0","\0")); // jshint ignore:line
+            }
+            this.port.on('data', function(msg, sender) {
+            
+                if (sender !== node)
+                  return;
+                // single char buffer
+                if ((node.serialConfig.newline === 0)||(node.serialConfig.newline === "")) {
+                    if (node.serialConfig.bin !== "bin") { node.send({"payload": String.fromCharCode(msg), port:node.serialConfig.serialport}); }
+                    else { node.send({"payload": new Buffer([msg]), port:node.serialConfig.serialport}); }
+                }
+                else {
+                    // do the timer thing
+                    if (node.serialConfig.out === "time") {
+                        if (node.tout) {
+                            i += 1;
+                            buf[i] = msg;
+                        }
+                        else {
+                            node.tout = setTimeout(function () {
+                                node.tout = null;
+                                var m = new Buffer(i+1);
+                                buf.copy(m,0,0,i+1);
+                                if (node.serialConfig.bin !== "bin") { m = m.toString(); }
+                                node.send({"payload": m, port:node.serialConfig.serialport});
+                                m = null;
+                            }, node.serialConfig.newline);
+                            i = 0;
+                            buf[0] = msg;
+                        }
+                    }
+                    // count bytes into a buffer...
+                    else if (node.serialConfig.out === "count") {
+                        buf[i] = msg;
+                        i += 1;
+                        if ( i >= parseInt(node.serialConfig.newline)) {
+                            var m = new Buffer(i);
+                            buf.copy(m,0,0,i);
+                            if (node.serialConfig.bin !== "bin") { m = m.toString(); }
+                            node.send({"payload":m, port:node.serialConfig.serialport});
+                            m = null;
+                            i = 0;
+                        }
+                    }
+                    // look to match char...
+                    else if (node.serialConfig.out === "char") {
+                        buf[i] = msg;
+                        i += 1;
+                        if ((msg === splitc[0]) || (i === bufMaxSize)) {
+                            var n = new Buffer(i);
+                            buf.copy(n,0,0,i);
+                            if (node.serialConfig.bin !== "bin") { n = n.toString(); }
+                            node.send({"payload":n, port:node.serialConfig.serialport});
+                            n = null;
+                            i = 0;
+                        }
+                    }
+                }
+            });
+            node.port.on('ready', function() {
+                node.status({fill:"green",shape:"dot",text:"node-red:common.status.connected"});
+            });
+            node.port.on('closed', function() {
+                node.status({fill:"red",shape:"ring",text:"node-red:common.status.not-connected"});
+            });
+        }
+        else {
+            this.error(RED._("serial.errors.missing-conf"));
+        }
+
+        this.on("close", function(done) {
+            if (this.serialConfig) {
+                serialPool.close(this.serialConfig.serialport,done);
+            }
+            else {
+                done();
+            }
+        });
+    }
+    RED.nodes.registerType("serial request", SerialRequestNode);
+    /******* REQUEST *********/
+
+
     var serialPool = (function() {
         var connections = {};
         return {
@@ -203,9 +337,11 @@ module.exports = function(RED) {
                             serial: null,
                             _closing: false,
                             tout: null,
+                            queue: [],
+                            last_sender: null,
                             on: function(a,b) { this._emitter.on(a,b); },
                             close: function(cb) { this.serial.close(cb); },
-                            write: function(m,cb) { this.serial.write(m,cb); },
+                            write: function(m,sender,cb) { this.last_sender = sender; this.serial.write(m,cb); },
                         }
                         //newline = newline.replace("\\n","\n").replace("\\r","\r");
                         var olderr = "";
@@ -253,7 +389,7 @@ module.exports = function(RED) {
                             });
                             obj.serial.on('data',function(d) {
                                 for (var z=0; z<d.length; z++) {
-                                    obj._emitter.emit('data',d[z]);
+                                    obj._emitter.emit('data',d[z],obj.last_sender);
                                 }
                             });
                             // obj.serial.on("disconnect",function() {
