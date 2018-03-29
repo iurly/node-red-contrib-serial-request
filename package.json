@@ -1,6 +1,6 @@
 {
     "name"          : "node-red-contrib-serial-request",
-    "version"       : "0.0.0",
+    "version"       : "0.0.1",
     "description"   : "Node-RED nodes to talk to serial ports",
     "dependencies"  : {
         "serialport"   : "^6.1.1"
